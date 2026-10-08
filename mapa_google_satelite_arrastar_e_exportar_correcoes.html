@@ -1,0 +1,483 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mapa de conferência</title>
+<style>
+html,body,#map{height:100%;margin:0;font-family:Arial,sans-serif}.top{position:fixed;z-index:10;top:12px;left:50%;transform:translateX(-50%);background:#fffffff5;padding:10px 12px;border-radius:12px;box-shadow:0 3px 14px #0004;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:92vw}.top button{padding:8px 12px}.status{text-align:center;min-width:300px}.status b,.status span{display:block}.meta{font-size:12px;color:#666}.verify.ok{background:#198754;color:#fff}.progress{width:100%;height:6px;background:#ddd;border-radius:8px;overflow:hidden}.bar{height:100%;background:#198754;width:0}.card{position:fixed;z-index:10;left:14px;bottom:14px;background:#fffffff2;padding:9px 11px;border-radius:10px;box-shadow:0 3px 12px #0003;max-width:450px;font-size:13px}.details{display:none;margin-top:7px}.card.expanded .details{display:block}.dup{position:fixed;z-index:10;right:14px;top:115px;width:340px;background:#fffffff2;padding:10px 12px;border-radius:10px;box-shadow:0 3px 12px #0003;font-size:13px}.dup .row{display:flex;justify-content:space-between;margin:4px 0}.dup-list{display:none;max-height:250px;overflow:auto;border-top:1px solid #ddd;margin-top:8px}.dup-list.open{display:block}.dup-item{padding:6px 0;border-bottom:1px solid #eee;cursor:pointer}.zoom{position:fixed;z-index:10;right:14px;bottom:14px;background:#fffffff2;padding:8px;border-radius:10px}.warn{color:#a45a00;font-weight:bold}@media(max-width:750px){.dup{display:none}.status{min-width:220px}}
+
+.search-box{
+  position:fixed;z-index:11;top:14px;left:14px;width:320px;
+  max-width:calc(100vw - 28px);background:rgba(255,255,255,.97);
+  padding:8px;border-radius:10px;box-shadow:0 3px 12px rgba(0,0,0,.22)
+}
+.search-box input{
+  width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #aaa;
+  border-radius:7px;font-size:14px
+}
+.search-results{
+  display:none;margin-top:6px;max-height:260px;overflow:auto;border-top:1px solid #ddd
+}
+.search-results.open{display:block}
+.search-item{padding:7px 4px;border-bottom:1px solid #eee;cursor:pointer;font-size:13px}
+.search-item:hover{background:#f4f4f4}
+.search-item small{display:block;color:#666;margin-top:2px}
+
+
+.filter-row{display:flex;gap:6px;margin-top:6px}
+.filter-row select{width:100%;box-sizing:border-box;padding:8px 9px;border:1px solid #aaa;border-radius:7px;font-size:13px;background:#fff}
+
+
+.copyable{
+  cursor:pointer;
+  border-radius:4px;
+  padding:1px 3px;
+  transition:background .15s ease
+}
+.copyable:hover{background:#e9ecef}
+.copyable:active{background:#dfe3e6}
+.copy-hint{font-size:11px;color:#777;margin-top:6px}
+.copy-toast{
+  position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
+  z-index:9999;background:#222;color:#fff;padding:8px 12px;border-radius:8px;
+  opacity:0;pointer-events:none;transition:opacity .18s ease;font-size:13px
+}
+.copy-toast.show{opacity:1}
+
+
+.save-panel{
+  position:fixed;z-index:11;left:14px;bottom:90px;
+  background:rgba(255,255,255,.97);padding:9px 10px;border-radius:10px;
+  box-shadow:0 3px 12px rgba(0,0,0,.22);font-size:13px;max-width:320px
+}
+.save-panel button{
+  border:1px solid #aaa;background:#fff;border-radius:6px;
+  padding:7px 9px;cursor:pointer;font-weight:700;margin-right:5px;margin-top:5px
+}
+.save-panel .changed{color:#b35a00;font-weight:700}
+.drag-hint{font-size:11px;color:#666;margin-top:5px}
+
+</style></head><body>
+<div id="copyToast" class="copy-toast">Copiado</div>
+
+<div class="save-panel">
+  <div><b>Correções de posição</b></div>
+  <div>Alteradas: <span id="changedCount" class="changed">0</span></div>
+  <button id="saveCorrectionsBtn">Salvar correções</button>
+  <button id="resetCorrectionsBtn">Desfazer todas</button>
+  <div class="drag-hint">Arraste a bolinha até a posição correta. As alterações também ficam salvas neste navegador.</div>
+</div>
+
+
+<div class="search-box">
+  <input id="beneficiarySearch" type="text" placeholder="Pesquisar beneficiário...">
+  <div class="filter-row">
+    <select id="municipalityFilter">
+      <option value="">Todos os municípios</option>
+    </select>
+  </div>
+  <div id="searchResults" class="search-results"></div>
+</div>
+
+<div id="map"></div>
+<div class="top">
+<button id="prev">←</button><div class="status"><b id="counter"></b><span id="name"></span><span class="meta" id="meta"></span><span class="meta" id="vcount"></span></div><button id="next">→</button>
+<button id="verify" class="verify">Marcar como verificada</button>
+<label>Ir para <input id="jump" type="number" min="1" style="width:65px"></label>
+<div class="progress"><div class="bar" id="bar"></div></div>
+</div>
+<div class="dup">
+<b>Conferência automática de duplicidade</b>
+<div class="row"><span>Coordenadas idênticas</span><b id="exact">0</b></div>
+<div class="row"><span>Nomes repetidos</span><b id="names">0</b></div>
+<div class="row"><span>Próximas até <input id="radius" type="number" min="1" max="100" value="15" style="width:52px"> m</span><b id="near">0</b></div>
+<div class="row"><span>Pontos suspeitos</span><b id="sus" class="warn">0</b></div>
+<button id="nextdup">Próxima suspeita</button><button id="listbtn">Ver lista</button>
+<div id="duplist" class="dup-list"></div>
+</div>
+<div id="card" class="card"><b id="mininame"></b> <button id="detailbtn">Detalhes ▾</button><div id="details" class="details"></div></div>
+<div class="zoom"><button onclick="map.setZoom(18)">Z18</button><button onclick="map.setZoom(20)">Z20</button><button onclick="map.setZoom(21)">Z21</button><button onclick="map.setZoom(22)">Z22</button></div>
+
+<script>
+const points=[{"id": 1, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS (LAGOA DOS PORCOS)", "name": "ADEMAILTON COSTA PAES LANDIN", "lat": -9.151566666666668, "lon": -43.083800000000004, "original": "9°09'05.64\"S, 43°05'01.68\"W"}, {"id": 2, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS (LAGOA DOS PORCOS)", "name": "ADEMILTON FERREIRA DA SILVA", "lat": -9.154016666666667, "lon": -43.08016666666667, "original": "9°09'14.46\"S, 43°04'48.60\"W"}, {"id": 3, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "ADRIANO SOUSA PAES LANDIN", "lat": -9.182566666666666, "lon": -43.07285, "original": "9°10'57.24\"S, 43°04'22.26\"W"}, {"id": 4, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "ALDENIR COELHO DE SOUSA", "lat": -9.184416666666667, "lon": -43.07261666666667, "original": "9°11'03.90\"S, 43°04'21.42\"W"}, {"id": 5, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "ALINE SOUSA RAMOS", "lat": -9.185483333333334, "lon": -43.07336666666667, "original": "9°11'07.74\"S, 43°04'24.12\"W"}, {"id": 6, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "ANA PAULA DE JESUS DOS SANTOS", "lat": -9.184783333333334, "lon": -43.07476666666667, "original": "9°11'05.22\"S, 43°04'29.16\"W"}, {"id": 7, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS (SUSUARANA)", "name": "ANDRÉIA DA MOTA SILVA", "lat": -9.160433333333334, "lon": -43.079883333333335, "original": "9°09'37.56\"S, 43°04'47.58\"W"}, {"id": 8, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "ANTONIETA PAES LANDIN DOS SANTOS", "lat": -9.183483333333333, "lon": -43.07411666666667, "original": "9°11'00.54\"S, 43°04'26.82\"W"}, {"id": 9, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "AURINEIDE DA SILVA SANTANA", "lat": -9.18165, "lon": -43.072700000000005, "original": "9°10'53.94\"S, 43°04'21.72\"W"}, {"id": 10, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "AURINEIDE DE SOUSA SANTOS", "lat": -9.184516666666667, "lon": -43.07486666666667, "original": "9°11'04.26\"S, 43°04'29.52\"W"}, {"id": 11, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "CARMELUCIA RIBEIRO MACEDO", "lat": -9.156933333333333, "lon": -43.0902, "original": "9°09'24.96\"S, 43°05'24.72\"W"}, {"id": 12, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "CELI SOUZA DA SILVA", "lat": -9.182549999999999, "lon": -43.07541666666667, "original": "9°10'57.18\"S, 43°04'31.50\"W"}, {"id": 13, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "CLEONICE DE LIMA SILVA", "lat": -9.182366666666667, "lon": -43.0735, "original": "9°10'56.52\"S, 43°04'24.60\"W"}, {"id": 14, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO (SUSUARANA)", "name": "CLEONICE RIBEIRO DA SILVA", "lat": -9.1655, "lon": -43.0769, "original": "9°09'55.80\"S, 43°04'36.84\"W"}, {"id": 15, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "CLEONICE ROCHA DA SILVA", "lat": -9.183633333333333, "lon": -43.07435, "original": "9°11'01.08\"S, 43°04'27.66\"W"}, {"id": 16, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "DEBORA DOS SANTOS BARBOSA", "lat": -9.182583333333334, "lon": -43.07555, "original": "9°10'57.30\"S, 43°04'31.98\"W"}, {"id": 17, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "DELAINE ROCHA DA SILVA", "lat": -9.183716666666667, "lon": -43.076550000000005, "original": "9°11'01.38\"S, 43°04'35.58\"W"}, {"id": 18, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "EDER DE SOUSA SILVA", "lat": -9.184166666666666, "lon": -43.073, "original": "9°11'03.00\"S, 43°04'22.80\"W"}, {"id": 19, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "EDINALVA TAVARES DA SILVA FERREIRA", "lat": -9.185500000000001, "lon": -43.07316666666667, "original": "9°11'07.80\"S, 43°04'23.40\"W"}, {"id": 20, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS", "name": "ELIENE DE MIRANDA CASTRO", "lat": -9.1442, "lon": -43.08871666666667, "original": "9°08'39.12\"S, 43°05'19.38\"W"}, {"id": 21, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO (SUSUARANA)", "name": "ELISANGELA DE SOUSA", "lat": -9.165316666666667, "lon": -43.07516666666667, "original": "9°09'55.14\"S, 43°04'30.60\"W"}, {"id": 22, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CAPIM GRANDE (CACIMBAS)", "name": "ELIXANDRA DA COSTA SOUSA BARBOSA", "lat": -9.174483333333333, "lon": -43.04773333333333, "original": "9°10'28.14\"S, 43°02'51.84\"W"}, {"id": 23, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "ELIZANIA DA SILVA RIBEIRO", "lat": -9.1839, "lon": -43.07625, "original": "9°11'02.04\"S, 43°04'34.50\"W"}, {"id": 24, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "FERNANDA GREICY FERREIRA DA SILVA SOUSA", "lat": -9.182649999999999, "lon": -43.073100000000004, "original": "9°10'57.54\"S, 43°04'23.16\"W"}, {"id": 25, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "FLAVIA DA COSTA PAES LANDIN", "lat": -9.182616666666666, "lon": -43.07568333333334, "original": "9°10'57.42\"S, 43°04'32.46\"W"}, {"id": 26, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "FRANCISCA DE SOUSA SOARES", "lat": -9.185533333333334, "lon": -43.073683333333335, "original": "9°11'07.92\"S, 43°04'25.26\"W"}, {"id": 27, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "FRANCISCA MARIA RODRIGUES", "lat": -9.18385, "lon": -43.076800000000006, "original": "9°11'01.86\"S, 43°04'36.48\"W"}, {"id": 28, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE QUEIMADA DE BAIXO", "name": "GEISY DE SOUSA LANDIN", "lat": -9.269183333333334, "lon": -43.024699999999996, "original": "9°16'09.06\"S, 43°01'28.92\"W"}, {"id": 29, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "GESSICA DE SOUSA SANTOS", "lat": -9.182766666666666, "lon": -43.07336666666667, "original": "9°10'57.96\"S, 43°04'24.12\"W"}, {"id": 30, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "GICELIA DIAS SOARES", "lat": -9.183966666666667, "lon": -43.07435, "original": "9°11'02.28\"S, 43°04'27.66\"W"}, {"id": 31, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "ILMARA DE SANTANA SANTOS", "lat": -9.182766666666666, "lon": -43.07551666666667, "original": "9°10'57.96\"S, 43°04'31.86\"W"}, {"id": 32, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO (SUSUARANA)", "name": "ISACLEIA RAIMUNDA DAMASCENO DE SOUSA", "lat": -9.165633333333334, "lon": -43.07531666666667, "original": "9°09'56.28\"S, 43°04'31.14\"W"}, {"id": 33, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS (LAGOA DOS PORCOS)", "name": "JAIANE DOS SANTOS LIMA", "lat": -9.14575, "lon": -43.087783333333334, "original": "9°08'44.70\"S, 43°05'16.02\"W"}, {"id": 34, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS", "name": "JAIR DE SOUSA FERREIRA", "lat": -9.13, "lon": -43.093583333333335, "original": "9°07'48.00\"S, 43°05'36.90\"W"}, {"id": 35, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "JAQUELINE RIBEIRO BRANDÃO", "lat": -9.1825, "lon": -43.07481666666667, "original": "9°10'57.00\"S, 43°04'29.34\"W"}, {"id": 36, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "JENILUCIA RIBEIRO GALVÃO", "lat": -9.164866666666667, "lon": -43.08143333333334, "original": "9°09'53.52\"S, 43°04'53.16\"W"}, {"id": 37, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "JOSIANO COELHO MACEDO", "lat": -9.185483333333334, "lon": -43.07418333333334, "original": "9°11'07.74\"S, 43°04'27.06\"W"}, {"id": 38, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS", "name": "JOSIMAR DA SILVA BRITO", "lat": -9.146333333333333, "lon": -43.087383333333335, "original": "9°08'46.80\"S, 43°05'14.58\"W"}, {"id": 39, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "JUDITE DIAS SOARES", "lat": -9.186033333333334, "lon": -43.075183333333335, "original": "9°11'09.72\"S, 43°04'30.66\"W"}, {"id": 40, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "KASSANDRA DIAS DE SOUSA", "lat": -9.1842, "lon": -43.072250000000004, "original": "9°11'03.12\"S, 43°04'20.10\"W"}, {"id": 41, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "LAURINEIDE DE JESUS DOS SANTOS", "lat": -9.1857, "lon": -43.07476666666667, "original": "9°11'08.52\"S, 43°04'29.16\"W"}, {"id": 42, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "LEONARDO DOS SANTOS SILVA", "lat": -9.182016666666666, "lon": -43.0728, "original": "9°10'55.26\"S, 43°04'22.08\"W"}, {"id": 43, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE OAU DE BIRRO", "name": "LIDIANA MACEDO DE SANTANA", "lat": -9.216149999999999, "lon": -43.04228333333333, "original": "9°12'58.14\"S, 43°02'32.22\"W"}, {"id": 44, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE BELA VISTA (CACIMBAS)", "name": "LIECI DE MIRANDA COSTA", "lat": -9.142949999999999, "lon": -43.088683333333336, "original": "9°08'34.62\"S, 43°05'19.26\"W"}, {"id": 45, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "LINDINALVA SANTOS ALMEIRA", "lat": -9.182233333333333, "lon": -43.07286666666667, "original": "9°10'56.04\"S, 43°04'22.32\"W"}, {"id": 46, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "LUCIDIO DIAS DA SILVA", "lat": -9.187133333333334, "lon": -43.076600000000006, "original": "9°11'13.68\"S, 43°04'35.76\"W"}, {"id": 47, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "LUCIETE MARIA DA SILVA", "lat": -9.186516666666668, "lon": -43.07608333333334, "original": "9°11'11.46\"S, 43°04'33.90\"W"}, {"id": 48, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS (LAGOA DOS PORCOS)", "name": "LUIZ GONZAGA DE SOUSA RIBEIRO", "lat": -9.142583333333333, "lon": -43.06293333333333, "original": "9°08'33.30\"S, 43°03'46.56\"W"}, {"id": 49, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MAILCE RIBEIRO LIMA", "lat": -9.1864, "lon": -43.07571666666667, "original": "9°11'11.04\"S, 43°04'32.58\"W"}, {"id": 50, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS", "name": "MARIA DA CRUZ SOUSA", "lat": -9.131183333333334, "lon": -43.09328333333334, "original": "9°07'52.26\"S, 43°05'35.82\"W"}, {"id": 51, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA DE LOURDES DE SOUSA LIMA", "lat": -9.185966666666667, "lon": -43.07516666666667, "original": "9°11'09.48\"S, 43°04'30.60\"W"}, {"id": 52, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA EDILENE COELHO DE SOUSA", "lat": -9.183383333333333, "lon": -43.07346666666667, "original": "9°11'00.18\"S, 43°04'24.48\"W"}, {"id": 53, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA EDINEIDE DOS SANTOS SOUSA", "lat": -9.183883333333334, "lon": -43.07461666666667, "original": "9°11'01.98\"S, 43°04'28.62\"W"}, {"id": 54, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA EDIVANIA DOS SANTOS SOUSA", "lat": -9.183416666666666, "lon": -43.072633333333336, "original": "9°11'00.30\"S, 43°04'21.48\"W"}, {"id": 55, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA EDMEIA ALENCAR RIBEIRO", "lat": -9.184316666666668, "lon": -43.075300000000006, "original": "9°11'03.54\"S, 43°04'31.08\"W"}, {"id": 56, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA IRACI RODRIGUES RIBEIRO", "lat": -9.183883333333334, "lon": -43.07653333333334, "original": "9°11'01.98\"S, 43°04'35.52\"W"}, {"id": 57, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE MANDASSAIA", "name": "MARIA JOSE DA COSTA SANTOS", "lat": -9.213716666666667, "lon": -43.01068333333333, "original": "9°12'49.38\"S, 43°00'38.46\"W"}, {"id": 58, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA LINA DE SOUSA SANTOS", "lat": -9.185550000000001, "lon": -43.07385, "original": "9°11'07.98\"S, 43°04'25.86\"W"}, {"id": 59, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA LINE RODRIGUES DE SOUSA", "lat": -9.183866666666667, "lon": -43.076883333333335, "original": "9°11'01.92\"S, 43°04'36.78\"W"}, {"id": 60, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA LUCIA DA SILVA RIBEIRO", "lat": -9.178183333333333, "lon": -43.08041666666667, "original": "9°10'41.46\"S, 43°04'49.50\"W"}, {"id": 61, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA NATALIA SOUSA SANTOS", "lat": -9.1828, "lon": -43.07351666666667, "original": "9°10'58.08\"S, 43°04'24.66\"W"}, {"id": 62, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA RITA DE OLIVEIRA SILVA", "lat": -9.18675, "lon": -43.07678333333334, "original": "9°11'12.30\"S, 43°04'36.42\"W"}, {"id": 63, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA SALVADORA DE JESUS SANTOS", "lat": -9.1659, "lon": -43.075183333333335, "original": "9°09'57.24\"S, 43°04'30.66\"W"}, {"id": 64, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIA SALVADORA DE SOUSA PAES LANDIN", "lat": -9.184033333333334, "lon": -43.07441666666667, "original": "9°11'02.52\"S, 43°04'27.90\"W"}, {"id": 65, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS", "name": "MARIA VITORIA MIRANDA ALVES", "lat": -9.14275, "lon": -43.08858333333333, "original": "9°08'33.90\"S, 43°05'18.90\"W"}, {"id": 66, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARIALEIA DIAS FERREIRA", "lat": -9.185516666666667, "lon": -43.0733, "original": "9°11'07.86\"S, 43°04'23.88\"W"}, {"id": 67, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS (LAGOA DOS PORCOS)", "name": "MARINALVA DA CONCEIÇÃO CRUZ", "lat": -9.140816666666666, "lon": -43.05968333333333, "original": "9°08'26.94\"S, 43°03'34.86\"W"}, {"id": 68, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MARINETE DE MIRANDA COSTA", "lat": -9.183266666666666, "lon": -43.07431666666667, "original": "9°10'59.76\"S, 43°04'27.54\"W"}, {"id": 69, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MAURICIO ROCHA DA SILVA", "lat": -9.183933333333334, "lon": -43.07746666666667, "original": "9°11'02.16\"S, 43°04'38.88\"W"}, {"id": 70, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "MEIRILANDIA FERREIRA DE SOUSA", "lat": -9.1836, "lon": -43.075300000000006, "original": "9°11'00.96\"S, 43°04'31.08\"W"}, {"id": 71, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "NATANIEL SILVA DE SOUSA", "lat": -9.185966666666667, "lon": -43.076950000000004, "original": "9°11'09.48\"S, 43°04'37.02\"W"}, {"id": 72, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "NEIVA DIAS DOS SANTOS", "lat": -9.183166666666667, "lon": -43.07253333333334, "original": "9°10'59.40\"S, 43°04'21.12\"W"}, {"id": 73, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "OSMAR RODRIGUES SOARES", "lat": -9.186733333333333, "lon": -43.07611666666667, "original": "9°11'12.24\"S, 43°04'34.02\"W"}, {"id": 74, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "REGINA DE SOUSA PAES LANDIN", "lat": -9.183366666666666, "lon": -43.07363333333333, "original": "9°11'00.12\"S, 43°04'25.08\"W"}, {"id": 75, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS", "name": "ROMILDA DA ROCHA SOUSA", "lat": -9.134816666666666, "lon": -43.0871, "original": "9°08'05.34\"S, 43°05'13.56\"W"}, {"id": 76, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS", "name": "RONIELE DE SOUSA SANTOS", "lat": -9.184283333333333, "lon": -43.07245, "original": "9°11'03.42\"S, 43°04'20.82\"W"}, {"id": 77, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "SATURNINA DIAS DO NASCIMENTO", "lat": -9.1591, "lon": -43.088433333333334, "original": "9°09'32.76\"S, 43°05'18.36\"W"}, {"id": 78, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "SHEYLA DE SOUSA SOARES", "lat": -9.18295, "lon": -43.0748, "original": "9°10'58.62\"S, 43°04'29.28\"W"}, {"id": 79, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "SORAYA SOUSA SOARES", "lat": -9.183383333333333, "lon": -43.074783333333336, "original": "9°11'00.18\"S, 43°04'29.22\"W"}, {"id": 80, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "STEPHANIE DAMASCENO RIBEIRO", "lat": -9.1714, "lon": -43.07941666666667, "original": "9°10'17.04\"S, 43°04'45.90\"W"}, {"id": 81, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "TALITA DOS SANTOS SOUSA", "lat": -9.182833333333333, "lon": -43.0728, "original": "9°10'58.20\"S, 43°04'22.08\"W"}, {"id": 82, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "TAMIRES CAFE DA SILVA REIS", "lat": -9.181833333333334, "lon": -43.0728, "original": "9°10'54.60\"S, 43°04'22.08\"W"}, {"id": 83, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "TAMIRIS COELHO DE SOUSA SOARES", "lat": -9.182533333333332, "lon": -43.07466666666667, "original": "9°10'57.12\"S, 43°04'28.80\"W"}, {"id": 84, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "TATIANA SANTOS LIMA DA SILVA", "lat": -9.164883333333334, "lon": -43.08096666666667, "original": "9°09'53.58\"S, 43°04'51.48\"W"}, {"id": 85, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "TERESINHA DOS SANTOS SOUSA", "lat": -9.183316666666666, "lon": -43.07265, "original": "9°10'59.94\"S, 43°04'21.54\"W"}, {"id": 86, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS", "name": "VALDENOR GONÇALVES DOS SANTOS", "lat": -9.138616666666666, "lon": -43.07841666666667, "original": "9°08'19.02\"S, 43°04'42.30\"W"}, {"id": 87, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS", "name": "VANDEILSON DE SOUZA SANTOS", "lat": -9.136, "lon": -43.084633333333336, "original": "9°08'09.60\"S, 43°05'04.68\"W"}, {"id": 88, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "VANEZA DA SILVA BRITO", "lat": -9.183016666666665, "lon": -43.07261666666667, "original": "9°10'58.86\"S, 43°04'21.42\"W"}, {"id": 89, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE FIDALGO", "name": "VANICLEIA SOUSA DE OLVEIRA", "lat": -9.182516666666666, "lon": -43.07496666666667, "original": "9°10'57.06\"S, 43°04'29.88\"W"}, {"id": 90, "municipio": "ANÍSIO DE ABREU", "localidade": "LOCALIDADE CACIMBAS", "name": "WALTAIR DA SILVA SOUSA", "lat": -9.134866666666666, "lon": -43.08683333333334, "original": "9°08'05.52\"S, 43°05'12.60\"W"}, {"id": 91, "municipio": "ITAINÓPOLIS", "localidade": "BARREIRO", "name": "ALBERTINA ACELINA DE OLIVEIRA", "lat": -7.433438888888889, "lon": -41.544399999999996, "original": "7°26'00.38\"S, 41°32'39.84\"W"}, {"id": 92, "municipio": "ITAINÓPOLIS", "localidade": "BARREIRO", "name": "JANAINA MARIA DO NASCIMENTO", "lat": -7.4351111111111114, "lon": -41.541525, "original": "7°26'06.40\"S, 41°32'29.49\"W"}, {"id": 93, "municipio": "ITAINÓPOLIS", "localidade": "BARREIRO", "name": "TERESINHA MARIA DE SOUSA", "lat": -7.437466666666667, "lon": -41.535091666666666, "original": "7°26'14.88\"S, 41°32'06.33\"W"}, {"id": 94, "municipio": "ITAINÓPOLIS", "localidade": "CAPU", "name": "PALOMA LEAL DUARTE", "lat": -7.372725, "lon": -41.52342222222222, "original": "7°22'21.81\"S, 41°31'24.32\"W"}, {"id": 95, "municipio": "ITAINÓPOLIS", "localidade": "CARAIBAS", "name": "ROMARIO DE SOUSA ARAUJO", "lat": -7.522805555555555, "lon": -41.412055555555554, "original": "7°31'22.10\"S, 41°24'43.40\"W"}, {"id": 96, "municipio": "ITAINÓPOLIS", "localidade": "MAXIXE", "name": "IRENILDES JOSEFA DE OLIVEIRA", "lat": -7.472038888888889, "lon": -41.540436111111106, "original": "7°28'19.34\"S, 41°32'25.57\"W"}, {"id": 97, "municipio": "ITAINÓPOLIS", "localidade": "MAXIXE", "name": "JERONIA MARIA DA SILVA OLIVEIRA", "lat": -7.463486111111111, "lon": -41.52598333333333, "original": "7°27'48.55\"S, 41°31'33.54\"W"}, {"id": 98, "municipio": "ITAINÓPOLIS", "localidade": "OLHO D'AGUA", "name": "CIPRIANA LEAL DA ROCHA", "lat": -7.352094444444444, "lon": -41.530763888888885, "original": "7°21'07.54\"S, 41°31'50.75\"W"}, {"id": 99, "municipio": "ITAINÓPOLIS", "localidade": "OLHO D'ÁGUA", "name": "MARIA DAS NEVES MOURA E SILVA", "lat": -7.351155555555555, "lon": -41.528169444444444, "original": "7°21'04.16\"S, 41°31'41.41\"W"}, {"id": 100, "municipio": "ITAINÓPOLIS", "localidade": "PATOS", "name": "ALELUIA MARIA LEAL DA SILVA", "lat": -7.347874999999999, "lon": -41.53476666666666, "original": "7°20'52.35\"S, 41°32'05.16\"W"}, {"id": 101, "municipio": "ITAINÓPOLIS", "localidade": "PATOS", "name": "JESSICA TELES LEAL", "lat": -7.343030555555555, "lon": -41.536899999999996, "original": "7°20'34.91\"S, 41°32'12.84\"W"}, {"id": 102, "municipio": "ITAINÓPOLIS", "localidade": "PATOS 1", "name": "MARIA EDINALVA LEAL", "lat": -7.343508333333333, "lon": -41.536141666666666, "original": "7°20'36.63\"S, 41°32'10.11\"W"}, {"id": 103, "municipio": "ITAINÓPOLIS", "localidade": "PATOS 2", "name": "EDMAR CORNELIO BRAZ", "lat": -7.328555555555555, "lon": -41.53146944444445, "original": "7°19'42.80\"S, 41°31'53.29\"W"}, {"id": 104, "municipio": "ITAINÓPOLIS", "localidade": "PIÇARRA", "name": "CARMELIA MARIA SILVA SANTOS", "lat": -7.358305555555555, "lon": -41.52341666666666, "original": "7°21'29.90\"S 41°31'24.30\"W"}, {"id": 105, "municipio": "ITAINÓPOLIS", "localidade": "PIÇARRA", "name": "FRANCISCO IBIAPINO SOBRINHO", "lat": -7.356936111111111, "lon": -41.523938888888885, "original": "7°21'24.97\"S, 41°31'26.18\"W"}, {"id": 106, "municipio": "ITAINÓPOLIS", "localidade": "PIÇARRA", "name": "JOAQUIM ANTONIO LEAL DA ROCHA", "lat": -7.356108333333333, "lon": -41.52448611111111, "original": "7°21'21.99\"S, 41°31'28.15\"W"}, {"id": 107, "municipio": "ITAINÓPOLIS", "localidade": "PIÇARRA", "name": "MARIA JOSE DA ROCHA", "lat": -7.358969444444444, "lon": -41.52712222222222, "original": "7°21'32.29\"S, 41°31'37.64\"W"}, {"id": 108, "municipio": "ITAINÓPOLIS", "localidade": "PIÇARRA", "name": "RAIMUNDO FIGUEIREDO IBIAPIANO", "lat": -7.358036111111111, "lon": -41.52288611111111, "original": "7°21'28.93\"S, 41°31'22.39\"W"}, {"id": 109, "municipio": "ITAINÓPOLIS", "localidade": "PIÇARRA", "name": "TERESA MARIA DE MOURA GONÇALVES", "lat": -7.357794444444444, "lon": -41.52130277777778, "original": "7°21'28.06\"S, 41°31'16.69\"W"}, {"id": 110, "municipio": "ITAINÓPOLIS", "localidade": "AREIAS", "name": "ELIANE MARIA DE SOUSA BATISTA ARAUJO", "lat": -7.388569444444445, "lon": -41.517697222222225, "original": "7°23'18.85\"S, 41°31'03.71\"W"}, {"id": 111, "municipio": "ITAINÓPOLIS", "localidade": "PIÇARRA", "name": "MANOEL FRANCISCO DA SILVA", "lat": -7.35708611111111, "lon": -41.52507222222222, "original": "7°21'25.51\"S, 41°31'30.26\"W"}, {"id": 112, "municipio": "ITAINÓPOLIS", "localidade": "PIÇARRA", "name": "ANAELLEN RODRIGUES MOURA", "lat": -7.370138888888889, "lon": -41.52703888888889, "original": "7°22'12.50\"S, 41°31'37.34\"W"}, {"id": 113, "municipio": "ITAINÓPOLIS", "localidade": "VÁRZEA GRANDE", "name": "HELENA FERREIRA DOS SANTOS ASSUNÇÃO ALVES", "lat": -7.4374722222222225, "lon": -41.535222222222224, "original": "7°26'14.90\"S, 41°32'06.80\"W"}, {"id": 114, "municipio": "ITAINÓPOLIS", "localidade": "MAXIXE", "name": "ROSELANGE MARIA PEREIRA", "lat": -7.468333333333334, "lon": -41.532244444444444, "original": "7°28'06.00\"S, 41°31'56.08\"W"}, {"id": 115, "municipio": "ITAINÓPOLIS", "localidade": "VÁRZEA GRANDE", "name": "SERGIA ROCHA LEAL", "lat": -7.3465444444444445, "lon": -41.54863611111111, "original": "7°20'47.56\"S, 41°32'55.09\"W"}, {"id": 116, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "ADELMAR DOS SANTOS", "lat": -6.982027777777778, "lon": -42.505916666666664, "original": "6°58'55.30\"S, 42°30'21.30\"W"}, {"id": 117, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "ALBERTINA PEREIRA DE SOUSA", "lat": -6.981183333333333, "lon": -42.50606388888889, "original": "6°58'52.26\"S, 42°30'21.83\"W"}, {"id": 118, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "ALDINA BORGES DO CARMO ARAUJO", "lat": -6.981111111111111, "lon": -42.507777777777775, "original": "6°58'52.00\"S, 42°30'28.00\"W"}, {"id": 119, "municipio": "OEIRAS", "localidade": "TIÚBA", "name": "ALEXANDRO BARRETO DE SOUSA", "lat": -6.967222222222222, "lon": -42.49722222222222, "original": "6°58'02.00\"S, 42°29'50.00\"W"}, {"id": 120, "municipio": "OEIRAS", "localidade": "JOÃO RODRIGUES", "name": "ANA MARIA DE SOUSA", "lat": -6.930833333333334, "lon": -42.41166666666666, "original": "6°55'51.00\"S, 42°24'42.00\"W"}, {"id": 121, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "ANTÔNIO BARBOSA ALVES", "lat": -6.981944444444444, "lon": -42.505833333333335, "original": "6°58'55.00\"S, 42°30'21.00\"W"}, {"id": 122, "municipio": "OEIRAS", "localidade": "CAPÃO", "name": "CICERA SANTOS SILVA", "lat": -6.958866666666667, "lon": -42.51913333333333, "original": "6°57'31.92\"S, 42°31'08.88\"W"}, {"id": 123, "municipio": "OEIRAS", "localidade": "CARAÍBAS", "name": "CLARISSE ALVES MOURA SILVA", "lat": -6.972777777777778, "lon": -42.51722222222222, "original": "6°58'22.00\"S, 42°31'02.00\"W"}, {"id": 124, "municipio": "OEIRAS", "localidade": "CAPADEIRA", "name": "DIEGO MARADONA SOARES DA SILVA", "lat": -6.903333333333333, "lon": -42.520833333333336, "original": "6°54'12.00\"S, 42°31'15.00\"W"}, {"id": 125, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "ELIANA PEREIRA DE CARVALHO", "lat": -6.980794444444444, "lon": -42.50763055555556, "original": "6°58'50.86\"S, 42°30'27.47\"W"}, {"id": 126, "municipio": "OEIRAS", "localidade": "TIÚBA", "name": "FRANCISCA JACKELINE DA SILVA CARVALHO", "lat": -6.966111111111111, "lon": -42.49777777777778, "original": "6°57'58.00\"S, 42°29'52.00\"W"}, {"id": 127, "municipio": "OEIRAS", "localidade": "TIÚBA", "name": "FRANCISCA JANAINE DA SILVA CARVALHO", "lat": -6.966388888888889, "lon": -42.49805555555556, "original": "6°57'59.00\"S, 42°29'53.00\"W"}, {"id": 128, "municipio": "OEIRAS", "localidade": "TIÚBA", "name": "FRANCISCA JANUBIA DA SILVA OLIVEIRA", "lat": -6.967777777777778, "lon": -42.503055555555555, "original": "6°58'04.00\"S, 42°30'11.00\"W"}, {"id": 129, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "FRANCISCA JOYCE NUNES SOUSA DO CARMO", "lat": -6.980666666666667, "lon": -42.50738888888889, "original": "6°58'50.40\"S, 42°30'26.60\"W"}, {"id": 130, "municipio": "OEIRAS", "localidade": "BAIXAS", "name": "FRANCISCO DE ASSIS DA SILVA ARAÚJO", "lat": -6.8838888888888885, "lon": -42.391666666666666, "original": "6°53'02.00\"S, 42°23'30.00\"W"}, {"id": 131, "municipio": "OEIRAS", "localidade": "TIÚBA", "name": "FRANCISCO DE SOUSA SILVA", "lat": -6.968888888888889, "lon": -42.50222222222222, "original": "6°58'08.00\"S, 42°30'08.00\"W"}, {"id": 132, "municipio": "OEIRAS", "localidade": "PEQUIZEIRO", "name": "GONÇALO PESSOA NUNES", "lat": -6.914363888888889, "lon": -42.44820833333333, "original": "6°54'51.71\"S, 42°26'53.55\"W"}, {"id": 133, "municipio": "OEIRAS", "localidade": "TIÚBA", "name": "HELENO JOSE DA SILVA", "lat": -6.957777777777778, "lon": -42.50111111111111, "original": "6°57'28.00\"S, 42°30'04.00\"W"}, {"id": 134, "municipio": "OEIRAS", "localidade": "TIÚBA", "name": "HERCILIA MARIA DE OLIVEIRA SOUSA", "lat": -6.966388888888889, "lon": -42.50333333333333, "original": "6°57'59.00\"S, 42°30'12.00\"W"}, {"id": 135, "municipio": "OEIRAS", "localidade": "CAPÃO", "name": "ISABEL GOMES DA SILVA BARRETO", "lat": -6.959416666666667, "lon": -42.518724999999996, "original": "6°57'33.90\"S, 42°31'07.41\"W"}, {"id": 136, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "JOÃO WILON BORGES DO CARMO", "lat": -6.981466666666667, "lon": -42.50605, "original": "6°58'53.28\"S, 42°30'21.78\"W"}, {"id": 137, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "JOAQUIM BEZERRA NETO", "lat": -6.981569444444444, "lon": -42.506188888888886, "original": "6°58'53.65\"S, 42°30'22.28\"W"}, {"id": 138, "municipio": "OEIRAS", "localidade": "LAGOA DA PANELA", "name": "JOICE CAROLINY GOMES DA SILVA", "lat": -6.881627777777778, "lon": -42.49353055555556, "original": "6°52'53.86\"S, 42°29'36.71\"W"}, {"id": 139, "municipio": "OEIRAS", "localidade": "ALAGOINHA", "name": "JUCIMARA NEVES DE ARAÚJO", "lat": -6.893055555555555, "lon": -42.49444444444445, "original": "6°53'35.00\"S, 42°29'40.00\"W"}, {"id": 140, "municipio": "OEIRAS", "localidade": "CAPÃO", "name": "LEONEIDE DE SOUSA BARRETO", "lat": -6.957966666666667, "lon": -42.51835833333333, "original": "6°57'28.68\"S, 42°31'06.09\"W"}, {"id": 141, "municipio": "OEIRAS", "localidade": "TABOCAS", "name": "LUIZ GONZAGA OLIVEIRA", "lat": -6.990230555555556, "lon": -42.509025, "original": "6°59'24.83\"S, 42°30'32.49\"W"}, {"id": 142, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "LUZIA BARBOSA DE OLIVEIRA", "lat": -6.983977777777778, "lon": -42.50799444444444, "original": "6°59'02.32\"S, 42°30'28.78\"W"}, {"id": 143, "municipio": "OEIRAS", "localidade": "JOÃO RODRIGUES", "name": "MAISA DE SOUSA SANTANA", "lat": -6.9319444444444445, "lon": -42.413333333333334, "original": "6°55'55.00\"S, 42°24'48.00\"W"}, {"id": 144, "municipio": "OEIRAS", "localidade": "TABOCAS", "name": "MARCILIANO ALVES DE OLIVEIRA", "lat": -6.989247222222223, "lon": -42.50870833333333, "original": "6°59'21.29\"S, 42°30'31.35\"W"}, {"id": 145, "municipio": "OEIRAS", "localidade": "CARAÍBAS", "name": "MARIA AMELIA DE JESUS", "lat": -6.9783333333333335, "lon": -42.52194444444444, "original": "6°58'42.00\"S, 42°31'19.00\"W"}, {"id": 146, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "MARIA APARECIDA DE JESUS ALVES", "lat": -6.981944444444444, "lon": -42.507777777777775, "original": "6°58'55.00\"S, 42°30'28.00\"W"}, {"id": 147, "municipio": "OEIRAS", "localidade": "JOÃO RODRIGUES", "name": "MARIA DA GUIA DE SOUSA COSTA E SILVA", "lat": -6.938888888888889, "lon": -42.42166666666667, "original": "6°56'20.00\"S, 42°25'18.00\"W"}, {"id": 148, "municipio": "OEIRAS", "localidade": "JOÃO RODRIGUES", "name": "MARIA DAS GRAÇAS DE SOUSA SILVA", "lat": -6.932222222222222, "lon": -42.41277777777778, "original": "6°55'56.00\"S, 42°24'46.00\"W"}, {"id": 149, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "MARIA DAS GRAÇAS FEITOSA", "lat": -6.981516666666667, "lon": -42.506011111111114, "original": "6°58'53.46\"S, 42°30'21.64\"W"}, {"id": 150, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "MARIA INES DE SOUSA BATISTA", "lat": -6.980833333333334, "lon": -42.50666666666667, "original": "6°58'51.00\"S, 42°30'24.00\"W"}, {"id": 151, "municipio": "OEIRAS", "localidade": "TABOCAS", "name": "MARIA JOSÉ DE JESUS", "lat": -6.993461111111111, "lon": -42.51000833333333, "original": "6°59'36.46\"S, 42°30'36.03\"W"}, {"id": 152, "municipio": "OEIRAS", "localidade": "PEQUIZEIRO", "name": "MARIA NAZARETH CARVALHO NUNES", "lat": -6.9152555555555555, "lon": -42.44715833333333, "original": "6°54'54.92\"S, 42°26'49.77\"W"}, {"id": 153, "municipio": "OEIRAS", "localidade": "CARAÍBAS", "name": "MARTIM GONÇALVES DE JESUS", "lat": -6.977777777777778, "lon": -42.52222222222222, "original": "6°58'40.00\"S, 42°31'20.00\"W"}, {"id": 154, "municipio": "OEIRAS", "localidade": "BAIXAS", "name": "NELSON PEREIRA DA COSTA", "lat": -6.8838888888888885, "lon": -42.39, "original": "6°53'02.00\"S, 42°23'24.00\"W"}, {"id": 155, "municipio": "OEIRAS", "localidade": "MELANCIAS", "name": "PEDRO HENRIQUE DE SOUSA OLIVEIRA", "lat": -6.867222222222223, "lon": -42.40277777777778, "original": "6°52'02.00\"S, 42°24'10.00\"W"}, {"id": 156, "municipio": "OEIRAS", "localidade": "TAMBORIL", "name": "RAIMUNDO ALVES DA SILVA FILHO", "lat": -6.989277777777778, "lon": -42.508719444444445, "original": "6°59'21.40\"S, 42°30'31.39\"W"}, {"id": 157, "municipio": "OEIRAS", "localidade": "ALAGOINHA", "name": "REGINEIDE MARIA DE SOUZA", "lat": -6.897777777777777, "lon": -42.486666666666665, "original": "6°53'52.00\"S, 42°29'12.00\"W"}, {"id": 158, "municipio": "OEIRAS", "localidade": "TIÚBA", "name": "SANDOVALDO BARRETO DE SOUSA", "lat": -6.962777777777778, "lon": -42.50055555555556, "original": "6°57'46.00\"S, 42°30'02.00\"W"}, {"id": 159, "municipio": "OEIRAS", "localidade": "TIÚBA", "name": "TERESINHA DE JESUS SILVA DE SOUSA", "lat": -6.9686111111111115, "lon": -42.50277777777778, "original": "6°58'07.00\"S, 42°30'10.00\"W"}, {"id": 160, "municipio": "PATOS DO PIAUÍ", "localidade": "PEREIROS", "name": "AGNALDO ANDRE FERREIRA", "lat": -7.747936111111112, "lon": -41.36879166666667, "original": "7°44'52.57\"S, 41°22'07.65\"W"}, {"id": 161, "municipio": "PATOS DO PIAUÍ", "localidade": "MORRO VELHO", "name": "ALBERTO JOSE DA COSTA", "lat": -7.759666666666667, "lon": -41.35981666666667, "original": "7°45'34.80\"S, 41°21'35.34\"W"}, {"id": 162, "municipio": "PATOS DO PIAUÍ", "localidade": "BOM JARDIM", "name": "ANA PAULA DE SOUSA", "lat": -7.660097222222222, "lon": -41.3393, "original": "7°39'36.35\"S, 41°20'21.48\"W"}, {"id": 163, "municipio": "PATOS DO PIAUÍ", "localidade": "BARRA", "name": "ANGELO JOSE DA COSTA", "lat": -7.701747222222222, "lon": -41.349155555555555, "original": "7°42'06.29\"S, 41°20'56.96\"W"}, {"id": 164, "municipio": "PATOS DO PIAUÍ", "localidade": "SACÃO", "name": "ARIONILDA DE SOUSA", "lat": -7.775183333333334, "lon": -41.36976388888889, "original": "7°46'30.66\"S, 41°22'11.15\"W"}, {"id": 165, "municipio": "PATOS DO PIAUÍ", "localidade": "MORRO VELHO", "name": "ARTUR MIGUEL DA SILVA", "lat": -7.759180555555556, "lon": -41.355916666666666, "original": "7°45'33.05\"S, 41°21'21.30\"W"}, {"id": 166, "municipio": "PATOS DO PIAUÍ", "localidade": "LAGOA DAS PEDRAS", "name": "ARTUR MOACIR CARVALHO VELOSO", "lat": -7.625980555555556, "lon": -41.394930555555554, "original": "7°37'33.53\"S, 41°23'41.75\"W"}, {"id": 167, "municipio": "PATOS DO PIAUÍ", "localidade": "EMA", "name": "CICERO JOSE DA SILVA", "lat": -7.766752777777778, "lon": -41.38435277777778, "original": "7°46'00.31\"S, 41°23'03.67\"W"}, {"id": 168, "municipio": "PATOS DO PIAUÍ", "localidade": "BARRA", "name": "CRISPIM JOSÉ DA COSTA", "lat": -7.70305, "lon": -41.34891666666667, "original": "7°42'10.98\"S, 41°20'56.10\"W"}, {"id": 169, "municipio": "PATOS DO PIAUÍ", "localidade": "BOM JARDIM", "name": "EDMILSON FRANCISCO FIGUEIREDO", "lat": -7.649030555555555, "lon": -41.341058333333336, "original": "7°38'56.51\"S, 41°20'27.81\"W"}, {"id": 170, "municipio": "PATOS DO PIAUÍ", "localidade": "EMA", "name": "ERIVAN JOSE DA COSTA", "lat": -7.768244444444444, "lon": -41.38441944444445, "original": "7°46'05.68\"S, 41°23'03.91\"W"}, {"id": 171, "municipio": "PATOS DO PIAUÍ", "localidade": "LAGOA DAS PEDRAS", "name": "FILOMENA TOMASIA DE SOUSA LOPES", "lat": -7.647933333333333, "lon": -41.391952777777774, "original": "7°38'52.56\"S, 41°23'31.03\"W"}, {"id": 172, "municipio": "PATOS DO PIAUÍ", "localidade": "MORRO DA ONÇA", "name": "FLORÊNCIA FRUTUOSA DA COSTA", "lat": -7.675827777777778, "lon": -41.38764166666667, "original": "7°40'32.98\"S, 41°23'15.51\"W"}, {"id": 173, "municipio": "PATOS DO PIAUÍ", "localidade": "CAPIM", "name": "FRANCINALVA COSTA FIGUEIREDO", "lat": -7.754616666666666, "lon": -41.46200833333334, "original": "7°45'16.62\"S, 41°27'43.23\"W"}, {"id": 174, "municipio": "PATOS DO PIAUÍ", "localidade": "BARRA", "name": "FRANCISCA MARIA MENDES", "lat": -7.701430555555556, "lon": -41.349830555555556, "original": "7°42'05.15\"S, 41°20'59.39\"W"}, {"id": 175, "municipio": "PATOS DO PIAUÍ", "localidade": "BOM JARDIM", "name": "FRANCISCO ANACLETO ALVES FIGUEIREDO", "lat": -7.651091666666667, "lon": -41.34158333333333, "original": "7°39'03.93\"S, 41°20'29.70\"W"}, {"id": 176, "municipio": "PATOS DO PIAUÍ", "localidade": "BARRA", "name": "FRANCISCO ARNALDO DA COSTA SILVA", "lat": -7.700116666666667, "lon": -41.35189722222222, "original": "7°42'00.42\"S, 41°21'06.83\"W"}, {"id": 177, "municipio": "PATOS DO PIAUÍ", "localidade": "SOBRADINHO", "name": "GERSOM CELSO DA COSTA", "lat": -7.659016666666667, "lon": -41.36171944444445, "original": "7°39'32.46\"S, 41°21'42.19\"W"}, {"id": 178, "municipio": "PATOS DO PIAUÍ", "localidade": "VISTA ALEGRE", "name": "GERUZA GERMINA DA CONCEIÇÃO", "lat": -7.706302777777778, "lon": -41.36775277777778, "original": "7°42'22.69\"S, 41°22'03.91\"W"}, {"id": 179, "municipio": "PATOS DO PIAUÍ", "localidade": "BOM JARDIM", "name": "GILSON DIAS DE FIGUEIREDO", "lat": -7.647991666666666, "lon": -41.34395277777778, "original": "7°38'52.77\"S, 41°20'38.23\"W"}, {"id": 180, "municipio": "PATOS DO PIAUÍ", "localidade": "MORRO DA ONÇA", "name": "ISONEIDE HILDETE DE SOUSA", "lat": -7.675852777777778, "lon": -41.387724999999996, "original": "7°40'33.07\"S, 41°23'15.81\"W"}, {"id": 181, "municipio": "PATOS DO PIAUÍ", "localidade": "BARRA", "name": "IVANI DA CONCEIÇÃO AMORIM", "lat": -7.701877777777778, "lon": -41.350591666666666, "original": "7°42'06.76\"S, 41°21'02.13\"W"}, {"id": 182, "municipio": "PATOS DO PIAUÍ", "localidade": "BAIXIO", "name": "JOSÉ ANTÔNIO DA COSTA", "lat": -7.698166666666667, "lon": -41.36443611111111, "original": "7°41'53.40\"S, 41°21'51.97\"W"}, {"id": 183, "municipio": "PATOS DO PIAUÍ", "localidade": "BOM JARDIM", "name": "JOSÉ DA PAIXÃO DA COSTA", "lat": -7.655027777777778, "lon": -41.3412, "original": "7°39'18.10\"S, 41°20'28.32\"W"}, {"id": 184, "municipio": "PATOS DO PIAUÍ", "localidade": "MORRO DA ONÇA", "name": "JOSÉ DANTAS DA SILVA", "lat": -7.678552777777778, "lon": -41.40309166666667, "original": "7°40'42.79\"S, 41°24'11.13\"W"}, {"id": 185, "municipio": "PATOS DO PIAUÍ", "localidade": "EMA", "name": "JOSE DELCIDO DA SILVA", "lat": -7.76775, "lon": -41.38440277777778, "original": "7°46'03.90\"S, 41°23'03.85\"W"}, {"id": 186, "municipio": "PATOS DO PIAUÍ", "localidade": "LAGOA DAS PEDRAS", "name": "JOSÉ FILHO DA COSTA", "lat": -7.629277777777778, "lon": -41.38178333333333, "original": "7°37'45.40\"S, 41°22'54.42\"W"}, {"id": 187, "municipio": "PATOS DO PIAUÍ", "localidade": "MORRO VELHO", "name": "JOSE NATIVO DA COSTA", "lat": -7.760266666666666, "lon": -41.35913333333333, "original": "7°45'36.96\"S, 41°21'32.88\"W"}, {"id": 188, "municipio": "PATOS DO PIAUÍ", "localidade": "TANQUE NOVO", "name": "JOSIANO GENESIO DA COSTA", "lat": -7.678794444444445, "lon": -41.30895555555555, "original": "7°40'43.66\"S, 41°18'32.24\"W"}, {"id": 189, "municipio": "PATOS DO PIAUÍ", "localidade": "SOBRADINHO", "name": "JOSINALDO ALBINO DA COSTA", "lat": -7.6592722222222225, "lon": -41.36023055555556, "original": "7°39'33.38\"S, 41°21'36.83\"W"}, {"id": 190, "municipio": "PATOS DO PIAUÍ", "localidade": "LAGOA DAS PEDRAS", "name": "LEILIANE SILVA AMORIM", "lat": -7.639508333333333, "lon": -41.38693055555556, "original": "7°38'22.23\"S, 41°23'12.95\"W"}, {"id": 191, "municipio": "PATOS DO PIAUÍ", "localidade": "SOBRADINHO", "name": "LINDOMAR ALBINO DA COSTA", "lat": -7.664169444444445, "lon": -41.353258333333336, "original": "7°39'51.01\"S, 41°21'11.73\"W"}, {"id": 192, "municipio": "PATOS DO PIAUÍ", "localidade": "MORRO DA ONÇA", "name": "MANOEL GERALDO DE CARVALHO", "lat": -7.670455555555556, "lon": -41.39553055555555, "original": "7°40'13.64\"S, 41°23'43.91\"W"}, {"id": 193, "municipio": "PATOS DO PIAUÍ", "localidade": "SACÃO", "name": "MARCIANA DE ARISTÃO COELHO", "lat": -7.773144444444444, "lon": -41.365825, "original": "7°46'23.32\"S, 41°21'56.97\"W"}, {"id": 194, "municipio": "PATOS DO PIAUÍ", "localidade": "ASSENTAMENTO TANQUE NOVO", "name": "MARIA AUZENI DA SILVA FIGUEIREDO", "lat": -7.677886111111111, "lon": -41.308724999999995, "original": "7°40'40.39\"S, 41°18'31.41\"W"}, {"id": 195, "municipio": "PATOS DO PIAUÍ", "localidade": "ASSENTAMENTO TANQUE NOVO", "name": "MARIA DAS GRAÇAS DE SOUSA FERREIRA", "lat": -7.677725000000001, "lon": -41.30909722222222, "original": "7°40'39.81\"S, 41°18'32.75\"W"}, {"id": 196, "municipio": "PATOS DO PIAUÍ", "localidade": "LAGOA DAS PEDRAS", "name": "MARIA DAS MERCES ASTROGILDA TEIXEIRA", "lat": -7.625644444444445, "lon": -41.391102777777775, "original": "7°37'32.32\"S, 41°23'27.97\"W"}, {"id": 197, "municipio": "PATOS DO PIAUÍ", "localidade": "BOM JARDIM", "name": "MARIA DAS MERCES DA COSTA AMORIM", "lat": -7.636919444444444, "lon": -41.35073333333334, "original": "7°38'12.91\"S, 41°21'02.64\"W"}, {"id": 198, "municipio": "PATOS DO PIAUÍ", "localidade": "SOBRADINHO", "name": "MARIA DAS MERCES DE JESUS COSTA", "lat": -7.663686111111112, "lon": -41.35156111111111, "original": "7°39'49.27\"S, 41°21'05.62\"W"}, {"id": 199, "municipio": "PATOS DO PIAUÍ", "localidade": "SACÃO", "name": "MARIA DOS REMEDIOS DA CONCEIÇÃO", "lat": -7.772841666666666, "lon": -41.366150000000005, "original": "7°46'22.23\"S, 41°21'58.14\"W"}, {"id": 200, "municipio": "PATOS DO PIAUÍ", "localidade": "SACÃO", "name": "MARIA JACIRA DE SOUSA SILVA", "lat": -7.774886111111111, "lon": -41.36843611111111, "original": "7°46'29.59\"S, 41°22'06.37\"W"}, {"id": 201, "municipio": "PATOS DO PIAUÍ", "localidade": "MORRO VELHO", "name": "MARIA RAQUEL DA SILVA", "lat": -7.748925, "lon": -41.356769444444446, "original": "7°44'56.13\"S, 41°21'24.37\"W"}, {"id": 202, "municipio": "PATOS DO PIAUÍ", "localidade": "ASSENTAMENTO TANQUE NOVO", "name": "MARINA MARIA DA CONCEIÇÃO", "lat": -7.679141666666667, "lon": -41.30970277777777, "original": "7°40'44.91\"S, 41°18'34.93\"W"}, {"id": 203, "municipio": "PATOS DO PIAUÍ", "localidade": "BARRA", "name": "MARINALVA ALBERTINA DA CONCEIÇÃO", "lat": -7.7080166666666665, "lon": -41.345483333333334, "original": "7°42'28.86\"S, 41°20'43.74\"W"}, {"id": 204, "municipio": "PATOS DO PIAUÍ", "localidade": "LAGOA DAS PEDRAS", "name": "MARTA MARIA DE OLIVEIRA", "lat": -7.628680555555556, "lon": -41.39319444444445, "original": "7°37'43.25\"S, 41°23'35.50\"W"}, {"id": 205, "municipio": "PATOS DO PIAUÍ", "localidade": "PALMA", "name": "MICHELE APARECIDA DOS SANTOS", "lat": -7.722955555555556, "lon": -41.316975000000006, "original": "7°43'22.64\"S, 41°19'01.11\"W"}, {"id": 206, "municipio": "PATOS DO PIAUÍ", "localidade": "LAGOA DAS PEDRAS", "name": "PAULA ANALIA DA COSTA", "lat": -7.628572222222223, "lon": -41.38249722222222, "original": "7°37'42.86\"S, 41°22'56.99\"W"}, {"id": 207, "municipio": "PATOS DO PIAUÍ", "localidade": "SACÃO", "name": "RAILDA DE SOUSA ALVES COSTA", "lat": -7.7767333333333335, "lon": -41.366036111111114, "original": "7°46'36.24\"S, 41°21'57.73\"W"}, {"id": 208, "municipio": "PATOS DO PIAUÍ", "localidade": "SOBRADINHO", "name": "RAILDA MARIA DA COSTA", "lat": -7.659502777777778, "lon": -41.36098333333334, "original": "7°39'34.21\"S, 41°21'39.54\"W"}, {"id": 209, "municipio": "PATOS DO PIAUÍ", "localidade": "SACÃO", "name": "SEBASTIANA MARIA DE SOUSA", "lat": -7.777602777777778, "lon": -41.37231666666667, "original": "7°46'39.37\"S, 41°22'20.34\"W"}, {"id": 210, "municipio": "PATOS DO PIAUÍ", "localidade": "TANQUE NOVO", "name": "SERGIO GOMES FERREIRA", "lat": -7.678366666666667, "lon": -41.30894722222222, "original": "7°40'42.12\"S, 41°18'32.21\"W"}, {"id": 211, "municipio": "PATOS DO PIAUÍ", "localidade": "SOBRADINHO", "name": "SILVIO TIMOTIO DE FIGUEIREDO", "lat": -7.661036111111112, "lon": -41.352811111111116, "original": "7°39'39.73\"S, 41°21'10.12\"W"}, {"id": 212, "municipio": "PATOS DO PIAUÍ", "localidade": "PALMA", "name": "ZILDA APARECIDA DE MENEZES DA SILVA", "lat": -7.7232972222222225, "lon": -41.314024999999994, "original": "7°43'23.87\"S, 41°18'50.49\"W"}, {"id": 213, "municipio": "PATOS DO PIAUÍ", "localidade": "CIPÓ", "name": "ZULMIRA PEDRINA DA SILVA", "lat": -7.711613888888889, "lon": -41.347625, "original": "7°42'41.81\"S, 41°20'51.45\"W"}], pairs100=[{"a": 3, "b": 13, "distance": 74.74}, {"a": 3, "b": 24, "distance": 28.96}, {"a": 3, "b": 29, "distance": 60.92}, {"a": 3, "b": 42, "distance": 61.4}, {"a": 3, "b": 45, "distance": 37.11}, {"a": 3, "b": 54, "distance": 97.46}, {"a": 3, "b": 61, "distance": 77.64}, {"a": 3, "b": 72, "distance": 75.23}, {"a": 3, "b": 81, "distance": 30.16}, {"a": 3, "b": 82, "distance": 81.73}, {"a": 3, "b": 85, "distance": 86.24}, {"a": 3, "b": 88, "distance": 56.21}, {"a": 4, "b": 18, "distance": 50.43}, {"a": 4, "b": 40, "distance": 46.91}, {"a": 4, "b": 76, "distance": 23.55}, {"a": 5, "b": 19, "distance": 22.03}, {"a": 5, "b": 26, "distance": 35.2}, {"a": 5, "b": 37, "distance": 89.64}, {"a": 5, "b": 58, "distance": 53.57}, {"a": 5, "b": 66, "distance": 8.2}, {"a": 6, "b": 10, "distance": 31.62}, {"a": 6, "b": 55, "distance": 78.23}, {"a": 6, "b": 64, "distance": 91.82}, {"a": 8, "b": 15, "distance": 30.56}, {"a": 8, "b": 30, "distance": 59.54}, {"a": 8, "b": 52, "distance": 72.21}, {"a": 8, "b": 53, "distance": 70.64}, {"a": 8, "b": 64, "distance": 69.46}, {"a": 8, "b": 68, "distance": 32.59}, {"a": 8, "b": 74, "distance": 54.62}, {"a": 8, "b": 78, "distance": 95.62}, {"a": 8, "b": 79, "distance": 74.02}, {"a": 9, "b": 42, "distance": 42.22}, {"a": 9, "b": 45, "distance": 67.39}, {"a": 9, "b": 82, "distance": 23.15}, {"a": 10, "b": 30, "distance": 83.41}, {"a": 10, "b": 53, "distance": 75.58}, {"a": 10, "b": 55, "distance": 52.51}, {"a": 10, "b": 64, "distance": 73.0}, {"a": 12, "b": 16, "distance": 15.1}, {"a": 12, "b": 25, "distance": 30.2}, {"a": 12, "b": 31, "distance": 26.48}, {"a": 12, "b": 35, "distance": 66.1}, {"a": 12, "b": 78, "distance": 81.0}, {"a": 12, "b": 83, "distance": 82.35}, {"a": 12, "b": 89, "distance": 49.54}, {"a": 13, "b": 24, "distance": 54.04}, {"a": 13, "b": 29, "distance": 46.82}, {"a": 13, "b": 42, "distance": 86.13}, {"a": 13, "b": 45, "distance": 71.08}, {"a": 13, "b": 61, "distance": 48.22}, {"a": 13, "b": 81, "distance": 92.72}, {"a": 13, "b": 82, "distance": 97.06}, {"a": 15, "b": 30, "distance": 37.06}, {"a": 15, "b": 53, "distance": 40.37}, {"a": 15, "b": 64, "distance": 45.08}, {"a": 15, "b": 68, "distance": 40.94}, {"a": 15, "b": 74, "distance": 84.07}, {"a": 15, "b": 78, "distance": 90.63}, {"a": 15, "b": 79, "distance": 55.09}, {"a": 16, "b": 25, "distance": 15.1}, {"a": 16, "b": 31, "distance": 20.71}, {"a": 16, "b": 35, "distance": 81.03}, {"a": 16, "b": 78, "distance": 91.87}, {"a": 16, "b": 83, "distance": 97.12}, {"a": 16, "b": 89, "distance": 64.46}, {"a": 17, "b": 23, "distance": 38.73}, {"a": 17, "b": 27, "distance": 31.19}, {"a": 17, "b": 56, "distance": 18.62}, {"a": 17, "b": 59, "distance": 40.21}, {"a": 18, "b": 40, "distance": 82.41}, {"a": 18, "b": 54, "distance": 92.6}, {"a": 18, "b": 76, "distance": 61.75}, {"a": 19, "b": 26, "distance": 56.83}, {"a": 19, "b": 58, "distance": 75.21}, {"a": 19, "b": 66, "distance": 14.75}, {"a": 21, "b": 32, "distance": 38.87}, {"a": 21, "b": 63, "distance": 64.89}, {"a": 23, "b": 27, "distance": 60.63}, {"a": 23, "b": 56, "distance": 31.16}, {"a": 23, "b": 59, "distance": 69.62}, {"a": 24, "b": 29, "distance": 32.02}, {"a": 24, "b": 42, "distance": 77.74}, {"a": 24, "b": 45, "distance": 52.94}, {"a": 24, "b": 52, "distance": 90.94}, {"a": 24, "b": 54, "distance": 99.46}, {"a": 24, "b": 61, "distance": 48.68}, {"a": 24, "b": 72, "distance": 84.67}, {"a": 24, "b": 74, "distance": 98.88}, {"a": 24, "b": 81, "distance": 38.73}, {"a": 24, "b": 82, "distance": 96.6}, {"a": 24, "b": 85, "distance": 89.08}, {"a": 24, "b": 88, "distance": 66.91}, {"a": 25, "b": 31, "distance": 24.76}, {"a": 25, "b": 35, "distance": 96.01}, {"a": 25, "b": 89, "distance": 79.45}, {"a": 26, "b": 37, "distance": 55.17}, {"a": 26, "b": 58, "distance": 18.39}, {"a": 26, "b": 66, "distance": 42.12}, {"a": 27, "b": 56, "distance": 29.51}, {"a": 27, "b": 59, "distance": 9.33}, {"a": 27, "b": 69, "distance": 73.76}, {"a": 29, "b": 45, "distance": 80.8}, {"a": 29, "b": 52, "distance": 69.44}, {"a": 29, "b": 61, "distance": 16.88}, {"a": 29, "b": 74, "distance": 72.86}, {"a": 29, "b": 81, "distance": 62.64}, {"a": 29, "b": 85, "distance": 99.64}, {"a": 29, "b": 88, "distance": 86.89}, {"a": 30, "b": 53, "distance": 30.7}, {"a": 30, "b": 64, "distance": 10.42}, {"a": 30, "b": 68, "distance": 77.92}, {"a": 30, "b": 79, "distance": 80.44}, {"a": 31, "b": 35, "distance": 82.36}, {"a": 31, "b": 70, "distance": 95.67}, {"a": 31, "b": 78, "distance": 81.27}, {"a": 31, "b": 83, "distance": 96.84}, {"a": 31, "b": 89, "distance": 66.47}, {"a": 32, "b": 63, "distance": 33.07}, {"a": 33, "b": 38, "distance": 78.33}, {"a": 35, "b": 78, "distance": 50.07}, {"a": 35, "b": 79, "distance": 98.29}, {"a": 35, "b": 83, "distance": 16.88}, {"a": 35, "b": 89, "distance": 16.57}, {"a": 36, "b": 84, "distance": 51.26}, {"a": 37, "b": 41, "distance": 68.41}, {"a": 37, "b": 58, "distance": 37.33}, {"a": 37, "b": 66, "distance": 97.03}, {"a": 39, "b": 41, "distance": 58.87}, {"a": 39, "b": 49, "distance": 71.34}, {"a": 39, "b": 51, "distance": 7.64}, {"a": 40, "b": 54, "distance": 96.73}, {"a": 40, "b": 76, "distance": 23.83}, {"a": 41, "b": 51, "distance": 52.98}, {"a": 42, "b": 45, "distance": 25.18}, {"a": 42, "b": 81, "distance": 90.81}, {"a": 42, "b": 82, "distance": 20.39}, {"a": 44, "b": 65, "distance": 24.8}, {"a": 45, "b": 61, "distance": 95.19}, {"a": 45, "b": 81, "distance": 67.12}, {"a": 45, "b": 82, "distance": 45.08}, {"a": 45, "b": 88, "distance": 91.32}, {"a": 46, "b": 47, "distance": 88.98}, {"a": 46, "b": 62, "distance": 47.14}, {"a": 46, "b": 73, "distance": 69.23}, {"a": 47, "b": 49, "distance": 42.29}, {"a": 47, "b": 62, "distance": 81.1}, {"a": 47, "b": 73, "distance": 24.37}, {"a": 49, "b": 51, "distance": 77.24}, {"a": 49, "b": 73, "distance": 57.46}, {"a": 52, "b": 54, "distance": 91.55}, {"a": 52, "b": 61, "distance": 65.1}, {"a": 52, "b": 68, "distance": 94.2}, {"a": 52, "b": 74, "distance": 18.39}, {"a": 52, "b": 81, "distance": 95.37}, {"a": 52, "b": 85, "distance": 89.95}, {"a": 53, "b": 55, "distance": 89.15}, {"a": 53, "b": 64, "distance": 27.57}, {"a": 53, "b": 68, "distance": 76.07}, {"a": 53, "b": 70, "distance": 81.36}, {"a": 53, "b": 79, "distance": 58.53}, {"a": 54, "b": 72, "distance": 29.89}, {"a": 54, "b": 76, "distance": 98.45}, {"a": 54, "b": 81, "distance": 67.39}, {"a": 54, "b": 85, "distance": 11.27}, {"a": 54, "b": 88, "distance": 44.52}, {"a": 55, "b": 70, "distance": 79.69}, {"a": 56, "b": 59, "distance": 38.46}, {"a": 58, "b": 66, "distance": 60.49}, {"a": 59, "b": 69, "distance": 64.46}, {"a": 61, "b": 74, "distance": 64.3}, {"a": 61, "b": 81, "distance": 78.76}, {"a": 62, "b": 71, "distance": 89.0}, {"a": 62, "b": 73, "distance": 73.2}, {"a": 64, "b": 68, "distance": 85.95}, {"a": 64, "b": 79, "distance": 82.73}, {"a": 68, "b": 74, "distance": 75.83}, {"a": 68, "b": 78, "distance": 63.68}, {"a": 68, "b": 79, "distance": 52.84}, {"a": 68, "b": 83, "distance": 90.14}, {"a": 70, "b": 78, "distance": 90.75}, {"a": 70, "b": 79, "distance": 61.62}, {"a": 72, "b": 81, "distance": 47.23}, {"a": 72, "b": 85, "distance": 21.03}, {"a": 72, "b": 88, "distance": 19.02}, {"a": 75, "b": 90, "distance": 29.8}, {"a": 78, "b": 79, "distance": 48.22}, {"a": 78, "b": 83, "distance": 48.59}, {"a": 78, "b": 89, "distance": 51.54}, {"a": 79, "b": 83, "distance": 95.38}, {"a": 79, "b": 89, "distance": 98.45}, {"a": 81, "b": 85, "distance": 56.21}, {"a": 81, "b": 88, "distance": 28.65}, {"a": 83, "b": 89, "distance": 32.98}, {"a": 85, "b": 88, "distance": 33.56}, {"a": 93, "b": 113, "distance": 14.41}, {"a": 101, "b": 102, "distance": 99.08}, {"a": 104, "b": 108, "distance": 65.73}, {"a": 116, "b": 117, "distance": 95.29}, {"a": 116, "b": 121, "distance": 13.06}, {"a": 116, "b": 136, "distance": 64.1}, {"a": 116, "b": 137, "distance": 59.16}, {"a": 116, "b": 149, "distance": 57.78}, {"a": 117, "b": 121, "distance": 88.37}, {"a": 117, "b": 136, "distance": 31.54}, {"a": 117, "b": 137, "distance": 45.1}, {"a": 117, "b": 149, "distance": 37.52}, {"a": 117, "b": 150, "distance": 77.08}, {"a": 118, "b": 125, "distance": 38.78}, {"a": 118, "b": 129, "distance": 65.46}, {"a": 118, "b": 146, "distance": 92.66}, {"a": 121, "b": 136, "distance": 58.26}, {"a": 121, "b": 137, "distance": 57.26}, {"a": 121, "b": 149, "distance": 51.45}, {"a": 122, "b": 135, "distance": 75.97}, {"a": 125, "b": 129, "distance": 30.22}, {"a": 126, "b": 127, "distance": 43.52}, {"a": 128, "b": 159, "distance": 97.6}, {"a": 129, "b": 150, "distance": 81.84}, {"a": 131, "b": 159, "distance": 68.66}, {"a": 136, "b": 137, "distance": 19.12}, {"a": 136, "b": 149, "distance": 7.02}, {"a": 136, "b": 150, "distance": 97.94}, {"a": 137, "b": 149, "distance": 20.48}, {"a": 137, "b": 150, "distance": 97.37}, {"a": 143, "b": 148, "distance": 68.66}, {"a": 144, "b": 156, "distance": 3.61}, {"a": 145, "b": 153, "distance": 68.96}, {"a": 163, "b": 174, "distance": 82.29}, {"a": 170, "b": 185, "distance": 55.01}, {"a": 172, "b": 180, "distance": 9.59}, {"a": 174, "b": 181, "distance": 97.5}, {"a": 177, "b": 208, "distance": 97.48}, {"a": 188, "b": 202, "distance": 90.94}, {"a": 188, "b": 210, "distance": 47.58}, {"a": 189, "b": 208, "distance": 86.83}, {"a": 193, "b": 199, "distance": 49.15}, {"a": 194, "b": 195, "distance": 44.76}, {"a": 194, "b": 210, "distance": 58.78}, {"a": 195, "b": 210, "distance": 73.24}], byId=Object.fromEntries(points.map(p=>[p.id,p]));
+let map,markers=[],info,current=0,dupCursor=-1,dup={exactGroups:[],nameGroups:[],nearPairs:[],sus:new Set(),ordered:[]};
+const store="coord_review_google_verified_v1"; let verified=new Set(JSON.parse(localStorage.getItem(store)||"[]"));
+
+function norm(s){return s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().replace(/\s+/g," ").toUpperCase()}
+function recalc(){
+ const r=Math.max(1,Math.min(100,+document.getElementById("radius").value||15)), cm=new Map(), nm=new Map();
+ points.forEach(p=>{let k=p.lat.toFixed(8)+","+p.lon.toFixed(8);(cm.get(k)||cm.set(k,[]).get(k)).push(p);let n=norm(p.name);(nm.get(n)||nm.set(n,[]).get(n)).push(p)});
+ let eg=[...cm.values()].filter(g=>g.length>1), ng=[...nm.values()].filter(g=>g.length>1);
+ let np=pairs100.filter(x=>x.distance<=r&&x.distance>0.05).map(x=>({a:byId[x.a],b:byId[x.b],distance:x.distance}));
+ let s=new Set(); eg.forEach(g=>g.forEach(p=>s.add(p.id))); ng.forEach(g=>g.forEach(p=>s.add(p.id))); np.forEach(x=>{s.add(x.a.id);s.add(x.b.id)});
+ dup={exactGroups:eg,nameGroups:ng,nearPairs:np,sus:s,ordered:[...s].sort((a,b)=>a-b)}; dupCursor=-1;
+ exact.textContent=eg.length; names.textContent=ng.length; near.textContent=np.length+" pares"; sus.textContent=s.size; renderList(); if(markers.length) styles(); update(false);
+}
+function renderList(){
+ let a=[]; dup.exactGroups.forEach(g=>a.push(`<div class="dup-item" data-id="${g[0].id}"><b>Coordenada idêntica</b><br>${g.map(p=>`#${p.id} ${p.name}<br><small>${p.municipio} — ${p.localidade}</small>`).join("<br>")}</div>`));
+ dup.nameGroups.forEach(g=>a.push(`<div class="dup-item" data-id="${g[0].id}"><b>Nome repetido</b><br>${g.map(p=>`#${p.id} ${p.name}<br><small>${p.municipio} — ${p.localidade}</small>`).join("<br>")}</div>`));
+ dup.nearPairs.forEach(x=>a.push(`<div class="dup-item" data-id="${x.a.id}"><b>${x.distance.toFixed(1)} m</b><br>#${x.a.id} ${x.a.name} — ${x.a.localidade}<br>#${x.b.id} ${x.b.name} — ${x.b.localidade}</div>`));
+ duplist.innerHTML=a.length?a.join(""):"Nenhuma suspeita."; duplist.querySelectorAll(".dup-item").forEach(n=>n.onclick=()=>{let i=points.findIndex(p=>p.id==n.dataset.id);if(i>=0){current=i;update(true)}})
+}
+function icon(i){let p=points[i],f="#2d7dd2",s="#1f5fa8",z=7;if(verified.has(p.id)){f="#198754";s="#0f6b3c"}if(dup.sus.has(p.id)){f="#f39c12";s="#a85e00"}if(i===current){f="#ff3b30";s="#b30000";z=10}return{path:google.maps.SymbolPath.CIRCLE,fillColor:f,fillOpacity:1,strokeColor:s,strokeWeight:2,scale:z}}
+function styles(){markers.forEach((m,i)=>m.setIcon(icon(i)))}
+function warnings(p){let a=[];dup.exactGroups.forEach(g=>{if(g.some(x=>x.id===p.id))a.push("Coordenada idêntica a "+g.filter(x=>x.id!==p.id).map(x=>`#${x.id} ${x.name}`).join(", "))});dup.nameGroups.forEach(g=>{if(g.some(x=>x.id===p.id))a.push("Nome repetido em "+g.filter(x=>x.id!==p.id).map(x=>`#${x.id}`).join(", "))});dup.nearPairs.forEach(x=>{if(x.a.id===p.id)a.push(`${x.distance.toFixed(1)} m de #${x.b.id} ${x.b.name}`);if(x.b.id===p.id)a.push(`${x.distance.toFixed(1)} m de #${x.a.id} ${x.a.name}`)});return a}
+function update(move=true){
+ let p=points[current],w=warnings(p);counter.textContent=`Ponto ${current+1} de ${points.length}`;name.textContent=p.name;meta.textContent=`${p.municipio} — ${p.localidade}`;vcount.textContent=`Verificadas: ${verified.size} de ${points.length}`;jump.value=current+1;let ok=verified.has(p.id);verify.textContent=ok?"✓ Verificada":"Marcar como verificada";verify.classList.toggle("ok",ok);bar.style.width=((verified.size/points.length)*100)+"%";mininame.textContent=`#${p.id} — ${p.name}`;details.innerHTML=
+    copySpan("Nome",p.name)+"<br>"+
+    copySpan("Município",p.municipio)+"<br>"+
+    copySpan("Localidade",p.localidade)+"<br>"+
+    copySpan("Latitude",p.lat.toFixed(6))+"<br>"+
+    copySpan("Longitude",p.lon.toFixed(6))+"<br>"+
+    copySpan("Coordenada",p.lat.toFixed(6)+", "+p.lon.toFixed(6))+"<br>"+
+    copySpan("Original",p.original)+
+    `<div class="copy-hint">Clique em qualquer dado acima para copiar.</div>`+
+    (w.length?`<br><span class="warn">⚠ Possível duplicidade</span><br>${w.join("<br>")}`:"");styles();if(move){map.panTo({lat:p.lat,lng:p.lon});if(map.getZoom()<20)map.setZoom(20)}info.close()
+}
+
+const originalPoints = Object.fromEntries(points.map(p => [p.id, {lat:p.lat, lon:p.lon}]));
+const movedStorageKey = "coord_review_moved_points_v1";
+let movedPoints = JSON.parse(localStorage.getItem(movedStorageKey) || "{}");
+
+function loadMovedPoints(){
+  Object.entries(movedPoints).forEach(([id,val])=>{
+    const p=points.find(x=>x.id===Number(id));
+    if(p && val && Number.isFinite(val.lat) && Number.isFinite(val.lon)){
+      p.lat=val.lat;
+      p.lon=val.lon;
+    }
+  });
+}
+
+function saveMovedPoints(){
+  localStorage.setItem(movedStorageKey, JSON.stringify(movedPoints));
+  updateChangedCount();
+}
+
+function updateChangedCount(){
+  document.getElementById("changedCount").textContent=Object.keys(movedPoints).length;
+}
+
+function recalcMovedDistances(){
+  // Mantém os marcadores na posição nova e atualiza o painel atual.
+  updateChangedCount();
+}
+
+function exportCorrections(){
+  const rows = Object.keys(movedPoints)
+    .map(id=>{
+      const p=points.find(x=>x.id===Number(id));
+      const orig=originalPoints[id];
+      return {
+        ponto:p.id,
+        municipio:p.municipio,
+        localidade:p.localidade,
+        beneficiario:p.name,
+        latitude_original:orig.lat,
+        longitude_original:orig.lon,
+        latitude_corrigida:p.lat,
+        longitude_corrigida:p.lon,
+        coordenada_corrigida:p.lat.toFixed(8)+", "+p.lon.toFixed(8)
+      };
+    })
+    .sort((a,b)=>a.ponto-b.ponto);
+
+  if(!rows.length){
+    alert("Nenhuma bolinha foi movida ainda.");
+    return;
+  }
+
+  const headers = [
+    "Ponto","Município","Localidade","Beneficiário",
+    "Latitude Original","Longitude Original",
+    "Latitude Corrigida","Longitude Corrigida","Coordenada Corrigida"
+  ];
+
+  const esc=v=>{
+    const s=String(v??"");
+    return '"' + s.replace(/"/g,'""') + '"';
+  };
+
+  const csv=[
+    headers.map(esc).join(";"),
+    ...rows.map(r=>[
+      r.ponto,r.municipio,r.localidade,r.beneficiario,
+      r.latitude_original.toFixed(8),r.longitude_original.toFixed(8),
+      r.latitude_corrigida.toFixed(8),r.longitude_corrigida.toFixed(8),
+      r.coordenada_corrigida
+    ].map(esc).join(";"))
+  ].join("\r\n");
+
+  const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="correcoes_coordenadas_cisternas.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function resetAllMovedPoints(){
+  if(!confirm("Deseja desfazer todas as correções feitas neste navegador?")) return;
+  movedPoints={};
+  localStorage.removeItem(movedStorageKey);
+
+  points.forEach((p,idx)=>{
+    const orig=originalPoints[p.id];
+    p.lat=orig.lat;
+    p.lon=orig.lon;
+    if(markers[idx]){
+      markers[idx].setPosition({lat:p.lat,lng:p.lon});
+    }
+  });
+
+  updateChangedCount();
+  update(true);
+}
+
+loadMovedPoints();
+
+function initMap(){
+ map=new google.maps.Map(document.getElementById("map"),{center:{lat:points[0].lat,lng:points[0].lon},zoom:20,mapTypeId:"hybrid",mapTypeControl:true,streetViewControl:true,fullscreenControl:true,gestureHandling:"greedy"});
+ info=new google.maps.InfoWindow();
+ points.forEach((p,i)=>{let m=new google.maps.Marker({position:{lat:p.lat,lng:p.lon},map,title:`${p.name} — ${p.localidade}, ${p.municipio}`,label:{text:String(p.id),color:"white",fontSize:"11px",fontWeight:"bold"},icon:icon(i),draggable:true});
+m.addListener("dragend",(ev)=>{
+  const newLat=ev.latLng.lat(), newLon=ev.latLng.lng();
+  p.lat=newLat; p.lon=newLon;
+  movedPoints[p.id]={lat:newLat,lon:newLon};
+  saveMovedPoints();
+  current=i;
+  update(false);
+  recalcMovedDistances();
+});
+m.addListener("click",()=>{current=i;update(false);let w=warnings(p);info.setContent(
+    copySpan("Nome",p.name)+"<br>"+
+    `<span>Ponto: ${p.id}</span><br>`+
+    copySpan("Município",p.municipio)+"<br>"+
+    copySpan("Localidade",p.localidade)+"<br>"+
+    copySpan("Latitude",p.lat.toFixed(6))+"<br>"+
+    copySpan("Longitude",p.lon.toFixed(6))+"<br>"+
+    copySpan("Coordenada",p.lat.toFixed(6)+", "+p.lon.toFixed(6))+"<br>"+
+    copySpan("Original",p.original)+
+    `<div class="copy-hint">Clique em um dado para copiar.</div>`+
+    (w.length?`<br><span class="warn">⚠ Possível duplicidade</span><br>${w.join("<br>")}`:"")
+  );info.open({anchor:m,map})});markers.push(m)});
+ jump.max=points.length;recalc();update(true)
+}
+prev.onclick=()=>{current=(current-1+points.length)%points.length;update(true)};next.onclick=()=>{current=(current+1)%points.length;update(true)};
+verify.onclick=()=>{let id=points[current].id;verified.has(id)?verified.delete(id):verified.add(id);localStorage.setItem(store,JSON.stringify([...verified]));update(false)};
+jump.onchange=e=>{let n=Math.min(Math.max(parseInt(e.target.value)||1,1),points.length);current=n-1;update(true)};
+detailbtn.onclick=()=>{card.classList.toggle("expanded");detailbtn.textContent=card.classList.contains("expanded")?"Detalhes ▴":"Detalhes ▾"};
+radius.oninput=recalc;radius.onchange=recalc;listbtn.onclick=()=>{duplist.classList.toggle("open");listbtn.textContent=duplist.classList.contains("open")?"Ocultar lista":"Ver lista"};
+nextdup.onclick=()=>{if(!dup.ordered.length)return;dupCursor=(dupCursor+1)%dup.ordered.length;let i=points.findIndex(p=>p.id===dup.ordered[dupCursor]);if(i>=0){current=i;update(true)}};
+
+document.getElementById("saveCorrectionsBtn").onclick=exportCorrections;
+document.getElementById("resetCorrectionsBtn").onclick=resetAllMovedPoints;
+updateChangedCount();
+
+document.addEventListener("keydown",e=>{if(document.activeElement?.tagName==="INPUT")return;if(e.key==="ArrowRight"){current=(current+1)%points.length;update(true)}if(e.key==="ArrowLeft"){current=(current-1+points.length)%points.length;update(true)}if(e.key.toLowerCase()==="v")verify.click();if(e.key.toLowerCase()==="d")nextdup.click()});
+</script>
+<script>
+
+function normalizeSearchText(s){
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().trim();
+}
+function renderSearchResults(term){
+  const box=document.getElementById("searchResults");
+  const q=normalizeSearchText(term);
+  if(!q){
+    box.classList.remove("open");
+    box.innerHTML="";
+    return;
+  }
+  const matches=points.filter(p=>normalizeSearchText(p.name).includes(q)).slice(0,30);
+  if(!matches.length){
+    box.innerHTML='<div class="search-item">Nenhum beneficiário encontrado.</div>';
+    box.classList.add("open");
+    return;
+  }
+  box.innerHTML=matches.map(p=>`
+    <div class="search-item" data-id="${p.id}">
+      <b>${p.name}</b>
+      <small>${p.municipio} — ${p.localidade}</small>
+    </div>
+  `).join("");
+  box.classList.add("open");
+  box.querySelectorAll(".search-item[data-id]").forEach(item=>{
+    item.onclick=()=>{
+      const id=Number(item.dataset.id);
+      const idx=points.findIndex(p=>p.id===id);
+      if(idx>=0){
+        current=idx;
+        update(true);
+        document.getElementById("beneficiarySearch").value=points[idx].name;
+        box.classList.remove("open");
+      }
+    };
+  });
+}
+document.getElementById("beneficiarySearch").addEventListener("input",e=>{
+  renderSearchResults(e.target.value);
+});
+document.getElementById("beneficiarySearch").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+    const first=document.querySelector("#searchResults .search-item[data-id]");
+    if(first) first.click();
+  } else if(e.key==="Escape"){
+    document.getElementById("searchResults").classList.remove("open");
+  }
+});
+document.addEventListener("click",e=>{
+  if(!e.target.closest(".search-box")){
+    document.getElementById("searchResults").classList.remove("open");
+  }
+});
+
+</script>
+<script>
+
+let selectedMunicipality = "";
+
+function normalizeMunicipality(s){
+  return normalizeSearchText(s);
+}
+
+function populateMunicipalityFilter(){
+  const select=document.getElementById("municipalityFilter");
+  const municipalities=[...new Set(points.map(p=>p.municipio.trim()))]
+    .sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  municipalities.forEach(m=>{
+    const opt=document.createElement("option");
+    opt.value=m;
+    opt.textContent=m;
+    select.appendChild(opt);
+  });
+}
+
+function pointPassesMunicipality(p){
+  return !selectedMunicipality ||
+    normalizeMunicipality(p.municipio)===normalizeMunicipality(selectedMunicipality);
+}
+
+function applyMunicipalityFilter(){
+  selectedMunicipality=document.getElementById("municipalityFilter").value;
+
+  markers.forEach((marker,idx)=>{
+    marker.setVisible(pointPassesMunicipality(points[idx]));
+  });
+
+  if(!pointPassesMunicipality(points[current])){
+    const idx=points.findIndex(p=>pointPassesMunicipality(p));
+    if(idx>=0){
+      current=idx;
+      update(true);
+    }
+  } else {
+    update(false);
+  }
+
+  renderSearchResults(document.getElementById("beneficiarySearch").value);
+}
+
+document.getElementById("municipalityFilter").addEventListener("change", applyMunicipalityFilter);
+
+renderSearchResults = function(term){
+  const box=document.getElementById("searchResults");
+  const q=normalizeSearchText(term);
+
+  if(!q){
+    box.classList.remove("open");
+    box.innerHTML="";
+    return;
+  }
+
+  const matches=points
+    .filter(p=>pointPassesMunicipality(p))
+    .filter(p=>normalizeSearchText(p.name).includes(q))
+    .slice(0,30);
+
+  if(!matches.length){
+    box.innerHTML='<div class="search-item">Nenhum beneficiário encontrado.</div>';
+    box.classList.add("open");
+    return;
+  }
+
+  box.innerHTML=matches.map(p=>`
+    <div class="search-item" data-id="${p.id}">
+      <b>${p.name}</b>
+      <small>${p.municipio} — ${p.localidade}</small>
+    </div>
+  `).join("");
+
+  box.classList.add("open");
+
+  box.querySelectorAll(".search-item[data-id]").forEach(item=>{
+    item.onclick=()=>{
+      const id=Number(item.dataset.id);
+      const idx=points.findIndex(p=>p.id===id);
+      if(idx>=0){
+        current=idx;
+        update(true);
+        document.getElementById("beneficiarySearch").value=points[idx].name;
+        box.classList.remove("open");
+      }
+    };
+  });
+};
+
+const _initMapOriginal = initMap;
+initMap = function(){
+  _initMapOriginal();
+  populateMunicipalityFilter();
+  applyMunicipalityFilter();
+};
+
+</script>
+<script>
+
+function escapeHtml(s){
+  return String(s)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#039;");
+}
+
+function copySpan(label, value){
+  const safeValue=escapeHtml(value);
+  const encoded=encodeURIComponent(value);
+  return `<span class="copyable" data-copy="${encoded}" title="Clique para copiar">${label}: ${safeValue}</span>`;
+}
+
+async function copyValue(value){
+  try{
+    await navigator.clipboard.writeText(value);
+  }catch(e){
+    const ta=document.createElement("textarea");
+    ta.value=value;
+    ta.style.position="fixed";
+    ta.style.opacity="0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+
+  const toast=document.getElementById("copyToast");
+  toast.textContent="Copiado: "+value;
+  toast.classList.add("show");
+  clearTimeout(window.__copyToastTimer);
+  window.__copyToastTimer=setTimeout(()=>toast.classList.remove("show"),1100);
+}
+
+document.addEventListener("click",e=>{
+  const target=e.target.closest(".copyable");
+  if(!target) return;
+  e.stopPropagation();
+  copyValue(decodeURIComponent(target.dataset.copy));
+});
+
+</script>
+<script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBMBu-rnEo5JosoheIKxhOmiEiGTAcgxEA&callback=initMap"></script>
+</body></html>
